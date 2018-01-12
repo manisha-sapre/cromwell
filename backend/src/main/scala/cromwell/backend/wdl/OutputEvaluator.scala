@@ -74,11 +74,20 @@ object OutputEvaluator {
 
     val emptyValue = Success(List.empty[(OutputPort, WomValue)].validNel): Try[ErrorOr[List[(OutputPort, WomValue)]]]
 
+    // Try the custom evaluation function
+    def fromCustomOutputEvaluation: Option[EvaluatedJobOutputs] = jobDescriptor.taskCall.customOutputEvaluation(taskInputValues, ioFunctions)
+      .map({
+        case Right(outputs) => ValidJobOutputs(CallOutputs(outputs))
+        case Left(errors) => InvalidJobOutputs(errors)
+      })
+    
     // Fold over the outputs to evaluate them in order, map the result to an EvaluatedJobOutputs
-    jobDescriptor.taskCall.expressionBasedOutputPorts.foldLeft(emptyValue)(foldFunction) match {
+    def fromOutputPorts: EvaluatedJobOutputs = jobDescriptor.taskCall.expressionBasedOutputPorts.foldLeft(emptyValue)(foldFunction) match {
       case Success(Valid(outputs)) => ValidJobOutputs(CallOutputs(outputs.toMap))
       case Success(Invalid(errors)) => InvalidJobOutputs(errors)
       case Failure(exception) => JobOutputsEvaluationException(exception)
     }
+
+    fromCustomOutputEvaluation.getOrElse(fromOutputPorts)
   }
 }

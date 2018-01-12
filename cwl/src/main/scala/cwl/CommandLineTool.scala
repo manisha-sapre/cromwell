@@ -2,9 +2,8 @@ package cwl
 
 import java.nio.file.Paths
 
+import cats.data.{EitherT, NonEmptyList}
 import cats.data.Validated.{Invalid, Valid}
-import cats.instances.list._
-import cats.instances.option._
 import cats.syntax.traverse._
 import cats.syntax.validated._
 import com.typesafe.config.ConfigFactory
@@ -17,16 +16,20 @@ import cwl.CwlVersion._
 import cwl.command.ParentName
 import cwl.requirement.RequirementToAttributeMap
 import eu.timepit.refined.W
+import io.circe.{Json, yaml}
 import shapeless.syntax.singleton._
 import shapeless.{:+:, CNil, Coproduct, Poly1, Witness}
 import wom.callable.Callable.{InputDefinitionWithDefault, OutputDefinition, RequiredInputDefinition}
 import wom.callable.{Callable, CallableTaskDefinition}
 import wom.executable.Executable
-import wom.expression.{ValueAsAnExpression, WomExpression}
+import wom.expression.{IoFunctionSet, ValueAsAnExpression, WomExpression}
+import wom.graph.GraphNodePort.OutputPort
 import wom.types.{WomStringType, WomType}
-import wom.values.{WomArray, WomEvaluatedCallInputs, WomFile, WomString, WomValue}
+import wom.values.{WomArray, WomEvaluatedCallInputs, WomFile, WomGlobFile, WomString, WomValue}
 import wom.{CommandPart, RuntimeAttributes}
 
+import scala.concurrent.Await
+import scala.concurrent.duration.Duration
 import scala.language.postfixOps
 import scala.math.Ordering
 import scala.util.Try
@@ -150,6 +153,28 @@ case class CommandLineTool private(
     }
   }
 
+  def outputEvaluationJsonFunction(outputPorts: Set[OutputPort], inputs: Map[String, WomValue], ioFunctionSet: IoFunctionSet): Option[Checked[Map[OutputPort, WomValue]]] = {
+    import cats.syntax.either._
+    import cats.instances.option._
+    
+    def jsonToOutputs(json: Map[String, Json]): Checked[List[(OutputPort, WomValue)]] = {
+      import cats.instances.list._
+
+      outputPorts.toList.traverse[ErrorOr, (OutputPort, WomValue)]({ outputPort =>
+        json.get(outputPort.name)
+          .map(_.foldWith(CwlJsonToDelayedCoercionFunction).apply(outputPort.womType).map(outputPort -> _))
+          .getOrElse(s"Cannot find a value for output ${outputPort.name} in output json $json".invalidNel)
+      }).toEither
+    }
+
+    (for {
+      outputJson <- EitherT.right[NonEmptyList[String]] { Await.result(ioFunctionSet.glob("cwl.output.json"), Duration.Inf).headOption }
+      content = Await.result(ioFunctionSet.readFile(outputJson, None, failOnOverflow = false), Duration.Inf)
+      parsed <- EitherT.fromEither { yaml.parser.parse(content).flatMap(_.as[Map[String, Json]]).leftMap(error => NonEmptyList.one(error.getMessage)) }
+      jobOutputsMap <- EitherT.fromEither { jsonToOutputs(parsed) }
+    } yield jobOutputsMap.toMap).value
+  }
+
   def buildTaskDefinition(validator: RequirementsValidator): ErrorOr[CallableTaskDefinition] = {
     validateRequirementsAndHints(validator) map { requirementsAndHints =>
       val id = this.id
@@ -222,7 +247,10 @@ case class CommandLineTool private(
         commandPartSeparator = " ",
         stdoutRedirection = stringOrExpressionToString(stdout),
         stderrRedirection = stringOrExpressionToString(stderr),
-        adHocFileCreation = adHocFileCreations
+        adHocFileCreation = adHocFileCreations,
+        // Always add "cwl.output.json" as an additional glob, as the tool may or may not produce it
+        additionalGlob = Option(WomGlobFile("cwl.output.json")),
+        customizedOutputEvaluation = outputEvaluationJsonFunction
       )
     }
   }
@@ -329,7 +357,7 @@ object CommandLineTool {
                                     `type`: Option[MyriadInputType] = None)
 
   object CommandInputParameter {
-
+    import cats.instances.list._
     type DefaultToWomValueFunction = WomType => ErrorOr[WomValue]
 
     object DefaultToWomValuePoly extends Poly1 {
@@ -428,7 +456,8 @@ object CommandLineTool {
                                      `type`: Option[MyriadOutputType] = None)
 
   object CommandOutputParameter {
-
+    import cats.instances.list._
+    import cats.instances.option._
     def format(formatOption: Option[StringOrExpression],
                parameterContext: ParameterContext): ErrorOr[Option[String]] = {
       formatOption.traverse[ErrorOr, String] {
