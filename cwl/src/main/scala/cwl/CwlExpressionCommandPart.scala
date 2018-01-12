@@ -63,8 +63,8 @@ abstract class CommandLineBindingCommandPart(commandLineBinding: CommandLineBind
     }
     
     def applyShellQuote(womValue: WomValue): Checked[WomValue] = commandLineBinding.shellQuote match {
-      case Some(false) | None => womValue.validNelCheck
-      case _ => "Shell quote is unsupported yet".invalidNelCheck
+      case Some(true) | None => WomString(womValue.valueString).validNelCheck
+      case Some(false) => womValue.validNelCheck
     }
     
     def processValue(womValue: WomValue): List[String] = womValue match {
@@ -81,7 +81,7 @@ abstract class CommandLineBindingCommandPart(commandLineBinding: CommandLineBind
       case _ => List.empty
     }
 
-    // Can't flatMap Either in 2.11..
+    // Can't flatMap Either in 2.11.
     evaluatedWomValue match {
       case Right(womValue) => applyShellQuote(womValue).map(processValue).map(_.map(InstantiatedCommand(_))).toValidated
       case Left(e) => Invalid(e)
