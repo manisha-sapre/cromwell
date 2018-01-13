@@ -3,10 +3,8 @@ package cwl
 import common.Checked
 import common.validation.Checked._
 import common.validation.ErrorOr.ErrorOr
-import io.circe.generic.auto._
 import io.circe.literal._
-import io.circe.shapes._
-import io.circe.{Decoder, Json, yaml}
+import io.circe.{Json, yaml}
 import wom.callable.{CallableTaskDefinition, ExecutableCallable, ExecutableTaskDefinition}
 import wom.executable.Executable
 import wom.executable.Executable.{InputParsingFunction, ParsedInputMap}
