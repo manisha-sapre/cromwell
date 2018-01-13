@@ -45,7 +45,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
   
   val runtimeEnv = RuntimeEnvironment("", "", 0, 0D, 0L, 0L)
   
-  def validate(tool: String, expectation: List[String]) = {
+  def validate(tool: String, expectation: List[String]): Unit = {
     val cltFile = better.files.File.newTemporaryFile()().write(tool)
 
     val clt = CwlDecoder.decodeTopLevelCwl(cltFile, None).value.unsafeRunSync() match {
@@ -60,7 +60,10 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
       .valueOr(errors => fail(errors.toList.mkString(", "))) shouldBe expectation
     
     cltFile.delete(true)
+    ()
   }
+
+  def validate(tool: String, commandLine: String): Unit = validate(tool, commandLine.trim.split(" +").toList)
   
   it should "filter input arguments when not bound to command line" in {
     val tool = """
@@ -78,7 +81,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
       |outputs: []
     """.stripMargin
 
-    validate(tool, List("echo", "helloA"))
+    validate(tool, """   "echo" helloA   """)
   }
 
   it should "order input arguments that are bound to command line" in {
@@ -102,7 +105,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "helloA", "helloB", "helloC"))
+    validate(tool, """   "echo" helloA helloB helloC   """)
   }
 
   it should "include arguments and sort them" in {
@@ -132,7 +135,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "arg0", "helloA", "arg1", "arg2", "helloB", "helloC"))
+    validate(tool, """ "echo" "arg0" helloA arg1 arg2 helloB helloC   """)
   }
 
   it should "handle array types" in {
@@ -158,7 +161,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "helloA", "arg2", "-XXX", "-YYY", "helloD0", "-YYY", "helloD1"))
+    validate(tool, """ "echo" helloA arg2 -XXX -YYY helloD0 -YYY helloD1   """)
   }
 
   it should "handle record schema" in {
@@ -194,7 +197,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "--prefixRecord", "--prefixFa", "helloEfa", "--prefixFb", "0", "helloA", "arg2"))
+    validate(tool, """   "echo" --prefixRecord --prefixFa helloEfa --prefixFb 0 helloA arg2   """)
   }
 
   it should "handle prefixes properly for primitive types" in {
@@ -222,7 +225,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "--aprefix", "helloA", "--show", "--hprefix", "0", "--iprefix", "ifile"))
+    validate(tool, """   "echo" --aprefix helloA --show --hprefix 0 --iprefix ifile   """)
   }
 
   it should "handle arrays with item separator" in {
@@ -241,7 +244,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "--array", "helloD0, helloD1"))
+    validate(tool, List("\"echo\"", "--array", "helloD0, helloD1"))
   }
 
   it should "handle arrays with valueFrom" in {
@@ -260,7 +263,7 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "--array", "hello"))
+    validate(tool, """   "echo" --array hello   """)
   }
 
   it should "handle the separate field" in {
@@ -276,6 +279,6 @@ class CommandLineToolSpec extends FlatSpec with Matchers with ParallelTestExecut
                  |outputs: []
                """.stripMargin
 
-    validate(tool, List("echo", "--prefixhelloA"))
+    validate(tool, """   "echo" --prefixhelloA   """)
   }
 }
